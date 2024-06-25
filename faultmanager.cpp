@@ -2,14 +2,49 @@
 
 #include "faultmanager.h"
 
+namespace fs = boost::filesystem;
+namespace pt = boost::posix_time;
+namespace gr = boost::gregorian;
 
 //constructor
 FaultManager::FaultManager(ThreadSafeQueue<std::string>& commandsQueue,ThreadSafeQueue<std::string>& faultsQueue) 
-: commandsQueue(commandsQueue), faultsQueue(faultsQueue), running(false){}
+: commandsQueue(commandsQueue), faultsQueue(faultsQueue), running(false)
+{
+    // Create the fault logs directory if it doesn't exist
+    logDir = "faultlogs";
+    if (!fs::exists(logDir)) 
+    {
+        fs::create_directory(logDir);
+    }
+
+    // Open the log file
+    std::string logFilename = generateLogFilename();
+    faultLogFile.open(logDir / logFilename, std::ios::app);
+    if (!faultLogFile.is_open()) 
+    {
+        std::cerr << "Failed to open fault log file" << std::endl;
+    }
+}
 
 //destructor
 FaultManager::~FaultManager() {
     faultstop();
+    if (faultLogFile.is_open()) 
+    {
+        faultLogFile.close();
+    }
+}
+
+// Function to generate a log filename with timestamp
+std::string FaultManager::generateLogFilename() {
+    pt::ptime now = pt::second_clock::local_time();
+    std::ostringstream filename;
+    filename << "fault_log_"
+             << gr::to_iso_extended_string(now.date()) << "_"
+             << std::setw(2) << std::setfill('0') << now.time_of_day().hours() << "-"
+             << std::setw(2) << std::setfill('0') << now.time_of_day().minutes()
+             << ".txt";
+    return filename.str();
 }
 
 //starting the fault manager thread
@@ -43,6 +78,7 @@ void FaultManager::faultfind()
         {
             std::cout << "Received fault in the fault manager "<< fault << std::endl;
             this->faulthandling(fault);
+            logFault(fault);
         }
     }
 }
@@ -221,5 +257,15 @@ void FaultManager::faulthandling(const std::string &fault)
     else
     {
         std::cerr << "Unknown fault: " << fault << std::endl;
+    }
+}
+
+// Function to log faults to the file
+void FaultManager::logFault(const std::string& fault) {
+    if (faultLogFile.is_open()) {
+        pt::ptime now = pt::second_clock::local_time();
+        faultLogFile << "[" << pt::to_iso_extended_string(now) << "] " << fault << std::endl;
+    } else {
+        std::cerr << "Fault log file is not open" << std::endl;
     }
 }
